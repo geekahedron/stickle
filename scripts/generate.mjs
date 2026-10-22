@@ -13,6 +13,10 @@
 // is checked by enumerating ALL boards reachable with <= k moves on the full lattice:
 //   fix/target: exactly one solving board (as read; spacing variants count once), and none with fewer moves
 //   max/min:    exactly one board reaching the best value, which must beat the start
+// Stored puzzles are then widened by PAD empty columns on each side (room for an extra digit or a leading
+// minus). For max/min the stored `best` and `answer` are recomputed by searching every board within <= k
+// moves on that wider lattice (the player is scored against it). scripts/check-best.mjs re-checks with the engine.
+//   node scripts/generate.mjs --widen              one-off: widen stored puzzles that have no `pad` yet
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 
@@ -165,8 +169,37 @@ const PLAN = [
 ]
 const day = (s) => Math.round(Date.parse(s + 'T00:00:00Z') / 864e5)
 const iso = (n) => new Date(n * 864e5).toISOString().slice(0, 10)
-const toData = (p) => ({ goal: p.goal, width: p.width, ...(p.best !== undefined ? { best: p.best } : {}), text: p.startText, solution: p.solution, start: p.start.join(' '), answer: [...p.solutionSlots].sort().join(' ') })
-const fromData = (p) => ({ goal: p.goal, width: p.width, best: p.best, start: p.start.split(' '), solutionSlots: p.answer.split(' '), startText: p.text, solution: p.solution })
+const PAD = 2
+const shift = (occ, d) => occ.map((s) => { const [k, n] = s.split(':'); return `${k}:${+n + d}` })
+// best over the wide lattice: the extreme value; its board = fewest moves, then the narrow answer if it is one,
+// then the smallest text/slots (deterministic)
+function wideBest(type, W, start, k, narrowAns) {
+  const vals = allValues(W, start, k), best = type === 'max' ? Math.max(...vals.map((n) => n.v)) : Math.min(...vals.map((n) => n.v))
+  const key = (occ) => [...occ].sort().join(' '), na = narrowAns && key(narrowAns)
+  const c = vals.filter((n) => n.v === best).sort((a, b) => a.j - b.j || (key(b.occ) === na) - (key(a.occ) === na) || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0) || (key(a.occ) < key(b.occ) ? -1 : 1))
+  return { best, occ: c[0].occ, text: c[0].text }
+}
+// narrow puzzle (as made/verified by make) -> stored, widened data
+function toData(p) {
+  const W = p.width + 2 * PAD, start = shift(p.start, PAD); let ans = shift(p.solutionSlots, PAD), best = p.best, solution = p.solution
+  if (p.goal.type === 'max' || p.goal.type === 'min') { const b = wideBest(p.goal.type, W, start, p.goal.moves, ans); best = b.best; ans = b.occ; solution = E.render(W, ans) }
+  return { goal: p.goal, width: W, pad: PAD, ...(best !== undefined ? { best } : {}), text: p.startText, solution, start: start.join(' '), answer: [...ans].sort().join(' ') }
+}
+const unpadded = (p) => { const d = p.pad || 0; return { goal: p.goal, width: p.width - 2 * d, best: p.best, start: shift(p.start.split(' '), -d), solutionSlots: shift(p.answer.split(' '), -d), startText: p.text, solution: p.solution } }
+// stored (wide) puzzle check: fix/target keep the narrow uniqueness checks; max/min: best is the wide optimum
+function verifyData(p) {
+  const n = unpadded(p), errs = []
+  if ((p.pad || 0) !== PAD) errs.push('not widened')
+  if (n.start.some((s) => +s.split(':')[1] < 0) || E.render(p.width, p.start.split(' ')) !== p.text) errs.push('wide start text')
+  if (p.goal.type === 'fix' || p.goal.type === 'target') return [...errs, ...verify(n)]
+  const W = p.width, start = p.start.split(' '), ans = p.answer.split(' '), k = p.goal.moves, v0 = E.value(W, start)
+  if (E.render(W, ans) !== p.solution) errs.push('solution text')
+  const m = E.moveCount(start, ans); if (!m || m > k) errs.push('answer move count')
+  if (E.value(W, ans) !== p.best) errs.push('answer does not reach best')
+  if (!(p.goal.type === 'max' ? p.best > v0 : p.best < v0)) errs.push('best does not beat start')
+  const b = wideBest(p.goal.type, W, start, k); if (b.best !== p.best) errs.push(`wide best is ${b.best}, stored ${p.best}`)
+  return errs
+}
 
 // full check of one stored puzzle: answer reaches the goal in exactly k moves, the start text matches,
 // the start doesn't already meet the goal, and the answer is the unique solution (or unique best)
@@ -188,10 +221,17 @@ function verify(p) {
 
 if (arg('selftest')) { selftest(); process.exit(0) }
 PUZZLES.forEach((d, i) => { if (d.date !== iso(day(EPOCH) + i)) throw new Error(`PUZZLES[${i}] has date ${d.date}, expected ${iso(day(EPOCH) + i)}`) })
+if (arg('widen')) {
+  let n = 0
+  for (const d of PUZZLES) d.puzzles = d.puzzles.map((p) => { if (p.pad) return p; n++; const w = toData(unpadded(p)); if (w.best !== p.best) console.error(`${d.date} ${p.goal.type}/${p.goal.moves} ${p.text}: best ${p.best} -> ${w.best} (${w.solution})`); return w })
+  const cur = fs.readFileSync(HTML, 'utf8'), body = '[\n' + PUZZLES.map((d) => JSON.stringify(d)).join(',\n') + '\n]'
+  fs.writeFileSync(HTML, cur.slice(0, cur.indexOf(PB) + PB.length) + body + cur.slice(cur.indexOf(PE)))
+  console.error(`widened ${n} puzzles`); process.exit(0)
+}
 if (arg('verify')) {
   let bad = 0, n = 0
   const starts = new Map()
-  for (const d of PUZZLES) d.puzzles.forEach((p, i) => { n++; const e = verify(fromData(p)); if (starts.has(p.text)) e.push(`start ${p.text} already used on ${starts.get(p.text)}`); starts.set(p.text, d.date); if (e.length) { bad++; console.error(`${d.date} #${i + 1}: ${e.join(', ')}`) } })
+  for (const d of PUZZLES) d.puzzles.forEach((p, i) => { n++; const e = verifyData(p); if (starts.has(p.text)) e.push(`start ${p.text} already used on ${starts.get(p.text)}`); starts.set(p.text, d.date); if (e.length) { bad++; console.error(`${d.date} #${i + 1}: ${e.join(', ')}`) } })
   const types = {}; for (const d of PUZZLES) for (const p of d.puzzles) { const t = p.goal.type + p.goal.moves; types[t] = (types[t] || 0) + 1 }
   console.error(`verified ${n} puzzles over ${PUZZLES.length} days (${PUZZLES[0]?.date} .. ${PUZZLES.at(-1)?.date}); problems: ${bad}`, types)
   process.exit(bad ? 1 : 0)

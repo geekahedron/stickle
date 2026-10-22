@@ -38,6 +38,8 @@ for (const vw of [375, 414]) {
   ok(day && (await label()) === `Stickle #${num}`, `${vw}px today (${today}, local date) is Stickle #${num}`)
   const fit = await pg.locator('.mboard').boundingBox(); ok(fit.x >= 0 && fit.x + fit.width <= vw, `${vw}px board fits the screen`)
 
+  const j0 = (n) => n === 0
+  ok(await pg.locator('[data-testid=submit]').isDisabled(), `${vw}px submit is disabled on the untouched board`)
   for (const [n, p] of day.puzzles.entries()) {
     const start = p.start.split(' '), ans = p.answer.split(' ')
     const rem = start.filter((s) => !ans.includes(s)), add = ans.filter((s) => !start.includes(s))
@@ -52,13 +54,27 @@ for (const vw of [375, 414]) {
       const [x0, y0] = await slotXY(rem[j], p.width), [x1, y1] = await slotXY(add[j], p.width)
       if (n === 1) { await tap(x0, y0); await tap(x1, y1) } else await touchDrag(x0, y0, x1, y1) // #2 by tap-then-tap
     }
-    ok(await pg.locator('.okmsg').count() === 1, `${vw}px #${n + 1} ${p.goal.type}/${p.goal.moves} ${p.text} -> ${p.solution} solved by ${n === 1 ? 'tap+tap' : 'touch drag'}`)
+    if (j0(n)) ok(await pg.locator('[data-testid=submit]').isEnabled(), `${vw}px #${n + 1} submit enabled once valid`)
+    await tapEl('[data-testid=submit]')
+    ok(/^Perfect!/.test(await pg.locator('[data-testid=rating]').innerText()), `${vw}px #${n + 1} ${p.goal.type}/${p.goal.moves} ${p.text} -> ${p.solution} solved by ${n === 1 ? 'tap+tap' : 'touch drag'}`)
     if (n < 2) { await tapEl(pg.getByText('Next puzzle')) }
   }
   const share = await pg.locator('.win pre').textContent()
-  ok(share.startsWith(`Stickle #${num}`) && share.includes('🔥🔥🔥 3/3') && share.includes(`?p=${num}`), `${vw}px share text: ${JSON.stringify(share)}`)
+  ok(share.startsWith(`Stickle #${num} — 3/3 perfect`) && share.includes('🔥🔥🔥 Perfect · Perfect · Perfect') && share.includes(`?p=${num}`), `${vw}px share text: ${JSON.stringify(share)}`)
   await pg.reload(); await pg.waitForSelector('.match')
-  ok(await pg.locator('.tab.ok').count() === 3 && await pg.locator('.win').count() === 1, `${vw}px progress survives a reload (localStorage)`)
+  ok(await pg.locator('.tab.ok').count() === 3 && await pg.locator('.win').count() === 1 && /^Perfect!/.test(await pg.locator('[data-testid=rating]').innerText()), `${vw}px progress and rating survive a reload (localStorage)`)
+  if (vw === 375) { // scoring of a non-best max/min answer, and old-format saves are shifted onto the wider board
+    const r = await pg.evaluate(() => {
+      const q = { goal: { type: 'max', moves: 1 }, width: 7, start: Engine.boardFrom('117').map((s) => s), best: 711 }
+      const t = (txt) => rate({ ...q, width: Engine.widthFor(txt) }, Engine.boardFrom(txt))
+      return [rate({ goal: { type: 'fix' } }).tier, t('711').tier, t('617').tier, t('171').tier, t('17').tier]
+    })
+    ok(JSON.stringify(r) === '["Perfect","Perfect","Great","Valid","Valid"]', `${vw}px rating tiers ${r}`)
+    const d1 = await pg.evaluate(() => { const d = dayFor('2026-10-01'), p = d.puzzles[0], pad = p.pad
+      const old = p.start.split(' ').map((s) => shiftSlot(s, -pad)); localStorage.setItem('stickle:2026-10-01', JSON.stringify({ cur: 0, boards: { 1: { pos: old, hist: [], solved: true, used: 1 }, 2: { pos: d.puzzles[1].start.split(' ').map((s) => shiftSlot(s, -pad)), hist: [], solved: false }, 3: { pos: d.puzzles[2].start.split(' ').map((s) => shiftSlot(s, -pad)), hist: [], solved: false } } })); return p.text })
+    await pg.goto(BASE + '#/2026-10-01'); await pg.waitForSelector('.match')
+    ok(await pg.evaluate(() => game.st.v === 2 && Engine.render(curQ().width, curB().pos)) === d1 && /Solved/.test(await pg.locator('main').innerText()), `${vw}px an old save is migrated onto the wider board (${d1})`)
+  }
 
   await pg.goto(BASE + '#/archive'); await pg.waitForSelector('.alist a')
   const rows = await pg.locator('.alist a').count()
