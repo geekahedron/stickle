@@ -22,7 +22,7 @@ The board has two spare columns on each side, so you can add a digit or put a `-
 **Submit:** once the board reads right for the goal (a true equation, the target value, or any valid number for largest/smallest) using 1 up to the allowed number of moves, the Submit button lights up.
 Each puzzle gets one submit, saved in your browser, and the rating stays after a reload:
 - **Fix** and **target** puzzles: any correct answer is **Perfect** 🔥.
-- **Largest/smallest** puzzles are scored against the best value reachable on the whole board, e.g. *Your 711 vs best 7111*. Progress = (your value − start) ÷ (best − start): **Perfect** 🔥 = the best, **Great** ⭐ ≥ 75%, **Good** 👍 ≥ 40%, **Valid** ✅ otherwise.
+- **Largest/smallest** puzzles are scored against the best value reachable on the whole board, e.g. *Your 294 vs best -354*. Progress = (your value − start) ÷ (best − start): **Perfect** 🔥 = the best, **Great** ⭐ ≥ 75%, **Good** 👍 ≥ 40%, **Valid** ✅ otherwise.
 
 When all three are done you get share text like:
 
