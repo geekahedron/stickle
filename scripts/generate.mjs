@@ -12,9 +12,10 @@
 // Each day gets 3 puzzles (deterministic per date) from a weekly plan of goal types and shapes. Every puzzle
 // is checked by enumerating ALL boards reachable with <= k moves on the full lattice:
 //   fix/target: exactly one solving board (as read; spacing variants count once), and none with fewer moves
-//   max/min:    exactly one board reaching the best value, which must beat the start
+//   max/min/minpos: exactly one board reaching the best value, which must beat the start
+//                   (minpos = smallest value that is > 0; zero/negatives do not count)
 // Stored puzzles are then widened by PAD empty columns on each side (room for an extra digit or a leading
-// minus). For max/min the stored `best` and `answer` are recomputed by searching every board within <= k
+// minus). For max/min/minpos the stored `best` and `answer` are recomputed by searching every board within <= k
 // moves on that wider lattice (the player is scored against it). scripts/check-best.mjs re-checks with the engine.
 //   node scripts/generate.mjs --widen              one-off: widen stored puzzles that have no `pad` yet
 import fs from 'fs'
@@ -142,9 +143,11 @@ function make(type, k, shape, maxTries = type === 'fix' && k > 1 ? 120 : 400) {
       const width = E.widthFor(txt), start = E.boardFrom(txt), v0 = E.value(width, start)
       if (v0 === null || usedStarts.has(txt)) continue
       const vals = allValues(width, start, k)
-      if (type === 'max' || type === 'min') {
-        const best = type === 'max' ? Math.max(...vals.map((n) => n.v)) : Math.min(...vals.map((n) => n.v))
-        const sols = distinct(vals.filter((n) => n.v === best))
+      if (type === 'max' || type === 'min' || type === 'minpos') {
+        const pool = type === 'minpos' ? vals.filter((n) => n.v > 0) : vals
+        if (!pool.length) continue
+        const best = type === 'max' ? Math.max(...pool.map((n) => n.v)) : Math.min(...pool.map((n) => n.v))
+        const sols = distinct(pool.filter((n) => n.v === best))
         if (sols.length === 1 && (type === 'max' ? best > v0 : best < v0) && sols[0].j === k) return { goal: { type, moves: k }, width, start, startText: txt, best, solution: E.render(width, sols[0].occ), solutionSlots: [...sols[0].occ].sort() }
       } else {
         const by = new Map(); for (const n of distinct(vals)) by.set(n.v, [...(by.get(n.v) || []), n])
@@ -162,10 +165,10 @@ const PLAN = [
   [['fix', 1, 'D+D=D|D-D=D'], ['max', 1, 'DDD'], ['fix', 2, 'D+D=DD|DD-D=D']],
   [['min', 1, 'DDD'], ['target', 1, 'D-DD'], ['fix', 2, 'DD-D=DD']],
   [['fix', 1, 'DD-D=D|DD+D=DD'], ['max', 2, 'DDD'], ['target', 2, 'DD-DD']],
-  [['max', 1, 'DDDD'], ['fix', 1, 'D+D=DD|DD-D=DD'], ['min', 2, 'DDDD']],
+  [['max', 1, 'DDDD'], ['fix', 1, 'D+D=DD|DD-D=DD'], ['minpos', 2, 'DDDD']],
   [['target', 1, 'DD-D'], ['fix', 2, 'D+D=D|D-D=D'], ['max', 2, 'D+DDD']],
   [['fix', 1, 'DD+D=DD|DD-D=DD'], ['min', 2, 'DDD'], ['target', 2, 'D-D+D']],
-  [['min', 1, 'DDDD'], ['fix', 2, 'DD+DD=DD|DD-DD=DD'], ['max', 2, 'DDDD']],
+  [['minpos', 1, 'DDDD'], ['fix', 2, 'DD+DD=DD|DD-DD=DD'], ['max', 2, 'DDDD']],
 ]
 const day = (s) => Math.round(Date.parse(s + 'T00:00:00Z') / 864e5)
 const iso = (n) => new Date(n * 864e5).toISOString().slice(0, 10)
@@ -174,19 +177,21 @@ const shift = (occ, d) => occ.map((s) => { const [k, n] = s.split(':'); return `
 // best over the wide lattice: the extreme value; its board = fewest moves, then the narrow answer if it is one,
 // then the smallest text/slots (deterministic)
 function wideBest(type, W, start, k, narrowAns) {
-  const vals = allValues(W, start, k), best = type === 'max' ? Math.max(...vals.map((n) => n.v)) : Math.min(...vals.map((n) => n.v))
+  const vals = allValues(W, start, k)
+  const pool = type === 'minpos' ? vals.filter((n) => n.v > 0) : vals
+  const best = type === 'max' ? Math.max(...pool.map((n) => n.v)) : Math.min(...pool.map((n) => n.v))
   const key = (occ) => [...occ].sort().join(' '), na = narrowAns && key(narrowAns)
-  const c = vals.filter((n) => n.v === best).sort((a, b) => a.j - b.j || (key(b.occ) === na) - (key(a.occ) === na) || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0) || (key(a.occ) < key(b.occ) ? -1 : 1))
+  const c = pool.filter((n) => n.v === best).sort((a, b) => a.j - b.j || (key(b.occ) === na) - (key(a.occ) === na) || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0) || (key(a.occ) < key(b.occ) ? -1 : 1))
   return { best, occ: c[0].occ, text: c[0].text }
 }
 // narrow puzzle (as made/verified by make) -> stored, widened data
 function toData(p) {
   const W = p.width + 2 * PAD, start = shift(p.start, PAD); let ans = shift(p.solutionSlots, PAD), best = p.best, solution = p.solution
-  if (p.goal.type === 'max' || p.goal.type === 'min') { const b = wideBest(p.goal.type, W, start, p.goal.moves, ans); best = b.best; ans = b.occ; solution = E.render(W, ans) }
+  if (p.goal.type === 'max' || p.goal.type === 'min' || p.goal.type === 'minpos') { const b = wideBest(p.goal.type, W, start, p.goal.moves, ans); best = b.best; ans = b.occ; solution = E.render(W, ans) }
   return { goal: p.goal, width: W, pad: PAD, ...(best !== undefined ? { best } : {}), text: p.startText, solution, start: start.join(' '), answer: [...ans].sort().join(' ') }
 }
 const unpadded = (p) => { const d = p.pad || 0; return { goal: p.goal, width: p.width - 2 * d, best: p.best, start: shift(p.start.split(' '), -d), solutionSlots: shift(p.answer.split(' '), -d), startText: p.text, solution: p.solution } }
-// stored (wide) puzzle check: fix/target keep the narrow uniqueness checks; max/min: best is the wide optimum
+// stored (wide) puzzle check: fix/target keep the narrow uniqueness checks; max/min/minpos: best is the wide optimum
 function verifyData(p) {
   const n = unpadded(p), errs = []
   if ((p.pad || 0) !== PAD) errs.push('not widened')
@@ -196,6 +201,7 @@ function verifyData(p) {
   if (E.render(W, ans) !== p.solution) errs.push('solution text')
   const m = E.moveCount(start, ans); if (!m || m > k) errs.push('answer move count')
   if (E.value(W, ans) !== p.best) errs.push('answer does not reach best')
+  if (p.goal.type === 'minpos' && !(p.best > 0)) errs.push('minpos best is not positive')
   if (!(p.goal.type === 'max' ? p.best > v0 : p.best < v0)) errs.push('best does not beat start')
   const b = wideBest(p.goal.type, W, start, k); if (b.best !== p.best) errs.push(`wide best is ${b.best}, stored ${p.best}`)
   return errs
@@ -214,7 +220,11 @@ function verify(p) {
   else {
     const vals = allValues(p.width, p.start, k)
     if (p.goal.type === 'target') { const s = distinct(vals.filter((n) => n.v === p.goal.target)); if (s.length !== 1 || s[0].j !== k) errs.push(`${s.length} target boards`) }
-    else { const best = p.goal.type === 'max' ? Math.max(...vals.map((n) => n.v)) : Math.min(...vals.map((n) => n.v)); if (best !== p.best) errs.push(`best is ${best}, stored ${p.best}`); else if (distinct(vals.filter((n) => n.v === best)).length !== 1) errs.push('several best boards') }
+    else {
+      const pool = p.goal.type === 'minpos' ? vals.filter((n) => n.v > 0) : vals
+      const best = p.goal.type === 'max' ? Math.max(...pool.map((n) => n.v)) : Math.min(...pool.map((n) => n.v))
+      if (best !== p.best) errs.push(`best is ${best}, stored ${p.best}`); else if (distinct(pool.filter((n) => n.v === best)).length !== 1) errs.push('several best boards')
+    }
   }
   return errs
 }

@@ -13,16 +13,17 @@ Each day has three puzzles. The board shows digits and signs made of matches, an
 |---|---|
 | **Fix** the equation | `8-11=4` → move 1 match → `8-4=4` |
 | Make the **largest** number | `117` → move 1 match → `711` |
-| Make the **smallest** number | `394` → move 1 match → `294` |
+| Make the **smallest** number | `988` → move 1 match → `-998` |
+| Make the **smallest positive** number | `394` → move 1 match → `294` |
 | Hit a **target** | `37-1`, make it 32 → move 1 match → `31+1` |
 
 Drag a match to an empty spot, or tap a match and then tap where it should go. Undo, Reset and Give up are under the board.
 The board has two spare columns on each side, so you can add a digit or put a `-` in front of a number.
 
-**Submit:** once the board reads right for the goal (a true equation, the target value, or any valid number for largest/smallest) using 1 up to the allowed number of moves, the Submit button lights up.
+**Submit:** once the board reads right for the goal (a true equation, the target value, any valid number for largest/smallest, or any positive number for smallest positive) using 1 up to the allowed number of moves, the Submit button lights up.
 Each puzzle gets one submit, saved in your browser, and the rating stays after a reload:
 - **Fix** and **target** puzzles: any correct answer is **Perfect** 🔥.
-- **Largest/smallest** puzzles are scored against the best value reachable on the whole board, e.g. *Your 294 vs best -354*. Progress = (your value − start) ÷ (best − start): **Perfect** 🔥 = the best, **Great** ⭐ ≥ 75%, **Good** 👍 ≥ 40%, **Valid** ✅ otherwise.
+- **Largest/smallest/smallest-positive** puzzles are scored against the best value reachable on the whole board, e.g. *Your 394 vs best 294* on a smallest-positive puzzle. Progress = (your value − start) ÷ (best − start): **Perfect** 🔥 = the best, **Great** ⭐ ≥ 75%, **Good** 👍 ≥ 40%, **Valid** ✅ otherwise. For smallest positive, zero and negatives cannot be submitted; if the starting value is not positive, the rating uses closeness to the best among positives instead.
 
 When all three are done you get share text like:
 
@@ -68,7 +69,7 @@ The engine (`Engine` in `index.html`) reads connected groups left to right:
    "start":"h0:1 v0:2 …","answer":"h0:1 h1:1 …"}, …]}
 ```
 
-`start` and `answer` are the occupied slots, and `pad` is the number of spare columns added on each side of the starting text. For `max` and `min` puzzles, `best` is the best value reachable anywhere on the padded board (extra digits and leading minus signs included) and `answer` is a board that reaches it; Give up shows that board. The answers are in the page source, just as Wordle's were.
+`start` and `answer` are the occupied slots, and `pad` is the number of spare columns added on each side of the starting text. For `max`, `min` and `minpos` puzzles, `best` is the best value reachable anywhere on the padded board (extra digits and leading minus signs included; for `minpos`, only values > 0 count) and `answer` is a board that reaches it; Give up shows that board. The answers are in the page source, just as Wordle's were.
 
 ### Generating more days
 
@@ -85,8 +86,8 @@ node scripts/check-best.mjs                # slow, engine-only brute force of ev
 - **No repeats:** a starting board is never reused.
 - **Checked by brute force:** every puzzle is verified by trying every board reachable within its move limit.
   - Fix and target puzzles must have exactly one solution, and none that uses fewer moves.
-  - Max and min puzzles must have exactly one board that reaches the best value, and that value must beat the starting board.
-- **Scored on the wider board:** each puzzle is then padded with two empty columns per side, and for max/min the stored `best` is found by searching every board within the move limit on the padded board.
+  - Max, min and minpos puzzles must have exactly one board that reaches the best value, and that value must beat the starting board (minpos = smallest positive).
+- **Scored on the wider board:** each puzzle is then padded with two empty columns per side, and for max/min/minpos the stored `best` is found by searching every board within the move limit on the padded board.
 
 ## Testing
 

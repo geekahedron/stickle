@@ -67,9 +67,14 @@ for (const vw of [375, 414]) {
     const r = await pg.evaluate(() => {
       const q = { goal: { type: 'max', moves: 1 }, width: 7, start: Engine.boardFrom('117').map((s) => s), best: 711 }
       const t = (txt) => rate({ ...q, width: Engine.widthFor(txt) }, Engine.boardFrom(txt))
-      return [rate({ goal: { type: 'fix' } }).tier, t('711').tier, t('617').tier, t('171').tier, t('17').tier]
+      const mp = { goal: { type: 'minpos', moves: 1 }, width: 7, start: Engine.boardFrom('394').map((s) => s), best: 294 }
+      const m = (txt) => rate({ ...mp, width: Engine.widthFor(txt) }, Engine.boardFrom(txt))
+      // non-positive start: score by best/v
+      const badStart = { goal: { type: 'minpos', moves: 1 }, width: 5, start: Engine.boardFrom('-5').map((s) => s), best: 1 }
+      const bs = (txt) => rate({ ...badStart, width: Engine.widthFor(txt) }, Engine.boardFrom(txt))
+      return [rate({ goal: { type: 'fix' } }).tier, t('711').tier, t('617').tier, t('171').tier, t('17').tier, m('294').tier, m('344').tier, bs('1').tier, bs('2').tier]
     })
-    ok(JSON.stringify(r) === '["Perfect","Perfect","Great","Valid","Valid"]', `${vw}px rating tiers ${r}`)
+    ok(JSON.stringify(r) === '["Perfect","Perfect","Great","Valid","Valid","Perfect","Good","Perfect","Good"]', `${vw}px rating tiers ${r}`)
     const d1 = await pg.evaluate(() => { const d = dayFor('2026-10-01'), p = d.puzzles[0], pad = p.pad
       const old = p.start.split(' ').map((s) => shiftSlot(s, -pad)); localStorage.setItem('stickle:2026-10-01', JSON.stringify({ cur: 0, boards: { 1: { pos: old, hist: [], solved: true, used: 1 }, 2: { pos: d.puzzles[1].start.split(' ').map((s) => shiftSlot(s, -pad)), hist: [], solved: false }, 3: { pos: d.puzzles[2].start.split(' ').map((s) => shiftSlot(s, -pad)), hist: [], solved: false } } })); return p.text })
     await pg.goto(BASE + '#/2026-10-01'); await pg.waitForSelector('.match')
